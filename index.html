@@ -421,12 +421,12 @@ const MOBILE_PAY = new Set(['mpesa', 'momo', 'airtel', 'airtime', 'wave', 'orang
 
 /* ===== state ===== */
 let A = {}, step = 0, sending = false, started = Date.now(), errs = {}, lang = 'en', langChosen = false, cfilter = '';
-try { const d = JSON.parse(localStorage.getItem('ri-panel-draft') || 'null'); if (d && d.A) { A = d.A; step = Math.min(d.step || 0, 11); lang = d.lang || lang; langChosen = !!d.langChosen; } } catch {}
+try { const d = JSON.parse(localStorage.getItem('ri-panel-draft') || 'null'); if (d && d.A) { A = d.A; step = Math.min(d.step || 0, 11); lang = d.lang || lang; langChosen = !!d.langChosen; if (d.started) started = d.started; } } catch {}
 if (!langChosen) { const nav = String(navigator.language || 'en').slice(0, 2); if (LANGS.includes(nav)) lang = nav; }
 try { const ref = (new URLSearchParams(location.search).get('ref') || '').slice(0, 30); if (ref && !A.ref) A.ref = ref; } catch {}
 // Campaign links can open on one panel: ?panel=b2b, ?panel=b2c or ?panel=both
 try { const p = { b2b: 'B2B', business: 'B2B', b2c: 'B2C', consumer: 'B2C', both: 'Both' }[(new URLSearchParams(location.search).get('panel') || '').toLowerCase()]; if (p && !A.panel) A.panel = p; } catch {}
-const save = () => { try { localStorage.setItem('ri-panel-draft', JSON.stringify({ A, step, lang, langChosen })); } catch {} };
+const save = () => { try { localStorage.setItem('ri-panel-draft', JSON.stringify({ A, step, lang, langChosen, started })); } catch {} };
 const clearDraft = () => { try { localStorage.removeItem('ri-panel-draft'); } catch {} };
 
 /* ===== wording ===== */
@@ -712,7 +712,10 @@ async function submit() {
     const j = await r.json().catch(() => ({}));
     sending = false;
     if (j.ok) return done(false, j.memberId);
-    errs.submit = j.code === 'duplicate' ? T('x_dup') : T('x_fail'); render(false);
+    // The server refuses sign-ups finished in under 20 seconds (a bot check). A person who resumed saved answers can be that quick: wait out the rest and send again.
+    if (j.code === 'too_fast' && !submit.retried) { submit.retried = true; sending = true; render(false); await new Promise(r => setTimeout(r, Math.max(0, 21000 - (Date.now() - started)))); submit.retried = false; return submit(); }
+    submit.retried = false;
+    errs.submit = j.code === 'duplicate' ? T('x_dup') : (j.message && lang === 'en' ? j.message : T('x_fail')); render(false);
   } catch { sending = false; errs.submit = T('x_net'); render(false); }
 }
 function done(preview, memberId) {
